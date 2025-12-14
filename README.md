@@ -10,6 +10,8 @@
 
 Automated SHSH2 blob saver with **end-to-end encryption**. Keep your iOS device identifiers private while maintaining a public backup of your precious blobs.
 
+---
+
 ## Table of Contents
 
 - [Why Encrypt?](#why-encrypt)
@@ -23,7 +25,6 @@ Automated SHSH2 blob saver with **end-to-end encryption**. Keep your iOS device 
 - [Project Structure](#project-structure)
 - [Security](#security)
 - [Troubleshooting](#troubleshooting)
-- [Local Testing with Act](#local-testing-with-act)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -41,39 +42,88 @@ SHSH2 blobs and device files contain sensitive information:
 
 ShshShh encrypts everything so you can safely store blobs in a public repository.
 
+---
+
+
 ## Quick Start
 
-### 1. Generate a Strong Key
+Want to save blobs for your own devices? Follow these steps:
+
+### 1. Create Your Repository
+
+Click the **"Use this template"** button above or [fork this repository](https://github.com/maycon/ShshShh/fork).
+
+### 2. Generate an Encryption Key
 
 ```bash
 openssl rand -base64 32
 ```
 
-Save this key somewhere secure (password manager, etc).
+Save this key securely (password manager recommended).
 
-### 2. Configure GitHub Secret
+### 3. Add the Secret to GitHub
 
-1. Go to **Settings → Secrets and variables → Actions**
+1. Go to your repository **Settings → Secrets and variables → Actions**
 2. Click **New repository secret**
 3. Name: `ENCRYPTION_KEY`
-4. Value: your generated key
+4. Value: paste your generated key
 
-### 3. Create Your devices.json
+### 4. Create Your devices.json
 
-See [Getting Device Information](#getting-device-information) below, then create your `devices.json` file.
+Create a file called `devices.json` with your devices:
 
-### 4. Encrypt and Commit
+```json
+{
+  "devices": [
+    {
+      "name": "My iPhone",
+      "productType": "iPhone15,2",
+      "boardConfig": "D73AP",
+      "ecid": "1A2B3C4D5E6F",
+      "generator": "0x1111111111111111"
+    }
+  ]
+}
+```
+
+> 📖 See [Getting Device Information](#getting-device-information) to find your device's `productType`, `boardConfig`, and `ecid`.
+
+### 5. Encrypt and Push
 
 ```bash
+# Clone your fork
+git clone https://github.com/YOUR_USERNAME/ShshShh.git
+cd ShshShh
+
+# Remove the example encrypted file
+rm devices.json.enc
+
+# Encrypt your devices.json
 export ENCRYPTION_KEY="your-key-here"
 ./scripts/encrypt.sh devices.json
-git add devices.json.enc .gitignore
-git commit -m "Add encrypted devices file"
+
+# Commit and push
+git add devices.json.enc
+git commit -m "Add my devices"
 git push
 ```
 
----
+### 6. Done! 🎉
 
+The workflow will run automatically and save encrypted blobs to your repository's **Releases**.
+
+To download and decrypt your blobs:
+
+```bash
+# Download from releases
+gh release download 18.2 -D ./blobs/
+
+# Decrypt
+export ENCRYPTION_KEY="your-key-here"
+./scripts/decrypt.sh blobs/*.enc
+```
+
+---
 ## Getting Device Information
 
 You'll need the following information for each device:
@@ -82,18 +132,16 @@ You'll need the following information for each device:
 |-------|----------|-------------|
 | `name` | Yes | Friendly name (e.g., "My iPhone 14") |
 | `productType` | Yes | Model identifier (e.g., "iPhone15,2") |
-| `ecid` | Yes | Exclusive Chip ID in **hexadecimal** |
 | `boardConfig` | Yes | Board configuration (e.g., "D73AP") |
+| `ecid` | Yes | Exclusive Chip ID in **hexadecimal** |
+| `generator` | No | Nonce generator (default: `0x1111111111111111`) |
 
 ### From the Device
 
-#### iOS Settings (Basic Info)
+#### iOS Settings
 
 1. Open **Settings → General → About**
-2. You can find:
-   - **Serial Number**: Tap and hold to copy
-   - **IMEI**: Scroll down, tap and hold to copy
-   - **Model Name**: Shows device model
+2. You can find **Model Name** (shows device model)
 
 > ⚠️ **Note**: ECID is **not** visible in iOS Settings. You need a computer to get it.
 
@@ -213,10 +261,8 @@ ideviceinfo
 
 # Or get specific values:
 ideviceinfo -k ProductType      # e.g., iPhone14,3
+ideviceinfo -k HardwareModel    # e.g., D64AP (BoardConfig)
 ideviceinfo -k UniqueChipID     # ECID in decimal
-ideviceinfo -k HardwareModel    # e.g., D64AP
-ideviceinfo -k SerialNumber     # Serial number
-ideviceinfo -k UniqueDeviceID   # UDID
 
 # Get ECID in hex (convert from decimal)
 ECID_DEC=$(ideviceinfo -k UniqueChipID)
@@ -229,10 +275,7 @@ printf "ECID (hex): %X\n" $ECID_DEC
 echo "ProductType: $(ideviceinfo -k ProductType)"
 echo "BoardConfig: $(ideviceinfo -k HardwareModel)"
 ECID_DEC=$(ideviceinfo -k UniqueChipID)
-echo "ECID (dec): $ECID_DEC"
 printf "ECID (hex): %X\n" $ECID_DEC
-echo "Serial: $(ideviceinfo -k SerialNumber)"
-echo "UDID: $(ideviceinfo -k UniqueDeviceID)"
 ```
 
 ---
@@ -243,12 +286,9 @@ echo "UDID: $(ideviceinfo -k UniqueDeviceID)"
 
 1. Connect your iPhone to your Mac
 2. Open **Finder** and select your device in the sidebar
-3. Click on the device info below the device name:
-   - Click once: Shows **Serial Number**
-   - Click again: Shows **UDID**
-   - Click again: Shows **ECID** (in hexadecimal)
+3. Click on the device info below the device name repeatedly to cycle through values until you see **ECID** (in hexadecimal)
 
-> 💡 Right-click on any value to copy it.
+> 💡 Right-click on the value to copy it.
 
 #### 🪟 Windows (iTunes - Legacy)
 
@@ -305,7 +345,7 @@ We use **JSON** instead of TSV for better structure and validation. The format i
 | `productType` | string | ✅ | Model identifier (e.g., "iPhone15,2") |
 | `boardConfig` | string | ✅ | Board config (e.g., "D73AP") |
 | `ecid` | string | ✅ | ECID in **hexadecimal** (without 0x prefix) |
-| `generator` | string | ✅ | Nonce generator (default: "0x1111111111111111") |
+| `generator` | string | ⚪ | Nonce generator (default: "0x1111111111111111") |
 
 ---
 
@@ -441,7 +481,6 @@ Use libimobiledevice or checkra1n to view ECID. Apple has removed this from newe
                         │  1910****8326    │
                         └──────────────────┘
 ```
-
 ---
 
 ## Contributing
@@ -463,5 +502,5 @@ MIT © [Hack N Roll](https://github.com/maycon)
 </p>
 
 <p align="center">
-  <sub>A <a href="https://github.com/hacknroll">Hack N Roll</a> project</sub>
+  <sub>A <a href="https://github.com/maycon">Hack N' Roll</a> project</sub>
 </p>
