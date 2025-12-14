@@ -243,7 +243,9 @@ jobs:
   release:
     runs-on: ubuntu-22.04
     needs: [build]
-
+    permissions:
+      contents: write
+      
     steps:
       - uses: actions/checkout@v4
 
