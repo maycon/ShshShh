@@ -166,19 +166,21 @@ jobs:
                           --save --latest > /dev/null 2>&1
             then
               # Rename blob to safe filename (remove ECID from name)
-              # tsschecker creates: {ECID}_{ProductType}_{BoardConfig}_{Version}-{Build}_*.shsh2
+              # tsschecker creates: {ECID_DECIMAL}_{ProductType}_{BoardConfig}_{Version}-{Build}_*.shsh2
               # We want: {Name}_{ProductType}_{Version}.shsh2
               
               # Sanitize device name (replace spaces and special chars)
               SAFE_NAME=$(echo "$NAME" | tr ' ' '_' | tr -cd '[:alnum:]_-')
               NEW_NAME="${save_path}${SAFE_NAME}_${PRODUCT_TYPE}_${latest_version}.shsh2"
               
-              # Find the blob with this device's ECID (case insensitive)
-              ECID_LOWER=$(echo "$ECID_HEX" | tr '[:upper:]' '[:lower:]')
+              # Convert ECID hex to decimal for matching (tsschecker uses decimal in filename)
+              ECID_DEC=$(printf "%d" "0x$ECID_HEX" 2>/dev/null || echo "$ECID_HEX")
+              
               for blob in "$save_path"*.shsh2; do
                 if [[ -f "$blob" ]]; then
-                  BLOB_LOWER=$(echo "$blob" | tr '[:upper:]' '[:lower:]')
-                  if [[ "$BLOB_LOWER" == *"$ECID_LOWER"* ]]; then
+                  # Check if filename starts with the decimal ECID
+                  BLOB_NAME=$(basename "$blob")
+                  if [[ "$BLOB_NAME" == "${ECID_DEC}_"* ]]; then
                     mv "$blob" "$NEW_NAME"
                     echo "✅ Blob saved: $(basename "$NEW_NAME")"
                     break
