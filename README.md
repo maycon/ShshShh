@@ -84,9 +84,6 @@ You'll need the following information for each device:
 | `productType` | Yes | Model identifier (e.g., "iPhone15,2") |
 | `ecid` | Yes | Exclusive Chip ID in **hexadecimal** |
 | `boardConfig` | Yes | Board configuration (e.g., "D73AP") |
-| `serialNumber` | No | Device serial number |
-| `udid` | No | Unique Device Identifier |
-| `imei` | No | IMEI number |
 
 ### From the Device
 
@@ -310,24 +307,6 @@ We use **JSON** instead of TSV for better structure and validation. The format i
 | `ecid` | string | ✅ | ECID in **hexadecimal** (without 0x prefix) |
 | `generator` | string | ✅ | Nonce generator (default: "0x1111111111111111") |
 
-### What NOT to Store
-
-**Don't include** these fields - they're not needed by tsschecker and only increase risk if leaked:
-
-- ❌ `serialNumber` - Not used
-- ❌ `udid` - Not used  
-- ❌ `imei` - Not used
-- ❌ `color` - Not used
-
-### Why JSON over TSV?
-
-| Feature | TSV | JSON |
-|---------|-----|------|
-| Human readable | 🟡 | ✅ |
-| Structured data | ❌ | ✅ |
-| Validation | ❌ | ✅ |
-| Easy parsing | 🟡 | ✅ |
-
 ---
 
 ## Usage
@@ -461,140 +440,6 @@ Use libimobiledevice or checkra1n to view ECID. Apple has removed this from newe
                         │  masked ECIDs:   │
                         │  1910****8326    │
                         └──────────────────┘
-```
-
----
-
-## Local Testing with Act
-
-You can test the workflow locally using [act](https://github.com/nektos/act) before pushing to GitHub.
-
-### Install Act
-
-```bash
-# macOS
-brew install act
-
-# Linux (using GitHub's official script)
-curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
-
-# Windows (using Chocolatey)
-choco install act-cli
-```
-
-> ⚠️ **Requirement**: Docker must be installed and running.
-
-### Setup
-
-1. **Create a secrets file** (never commit this!):
-
-```bash
-# .secrets (add to .gitignore!)
-ENCRYPTION_KEY=your-actual-encryption-key
-GITHUB_TOKEN=ghp_your_github_token
-```
-
-2. **Add `.secrets` to `.gitignore`**:
-
-```bash
-echo ".secrets" >> .gitignore
-```
-
-### Run the Workflow
-
-```bash
-# List available jobs
-act -l
-
-# Run the build job only (recommended for testing)
-act -j build --secret-file .secrets
-
-# Run with verbose output
-act -j build --secret-file .secrets -v
-
-# Run specific event (push is default)
-act push --secret-file .secrets
-
-# Dry run (show what would be executed)
-act -n
-```
-
-### Using Different Runner Images
-
-Act uses Docker images to simulate GitHub runners. Choose based on your needs:
-
-```bash
-# Micro (fast, minimal) - good for simple workflows
-act -P ubuntu-22.04=catthehacker/ubuntu:act-22.04
-
-# Medium (balanced) - recommended
-act -P ubuntu-22.04=catthehacker/ubuntu:full-22.04
-
-# Large (slow, complete) - most compatible
-act -P ubuntu-22.04=catthehacker/ubuntu:runner-22.04
-```
-
-Save your preference in `.actrc`:
-
-```bash
-# .actrc
--P ubuntu-22.04=catthehacker/ubuntu:full-22.04
---secret-file .secrets
-```
-
-### Testing Tips
-
-1. **Test only the build job first** (skip release):
-   ```bash
-   act -j build --secret-file .secrets
-   ```
-
-2. **Skip steps locally** using the `ACT` environment variable:
-   ```yaml
-   - name: Upload to Release
-     if: ${{ !env.ACT }}
-     run: gh release upload ...
-   ```
-
-3. **Check artifacts**:
-   ```bash
-   # Artifacts are saved to /tmp/artifacts by default
-   act -j build --secret-file .secrets --artifact-server-path /tmp/artifacts
-   ```
-
-4. **Debug failed steps**:
-   ```bash
-   act -j build --secret-file .secrets -v --rm=false
-   # Then inspect the container: docker ps -a
-   ```
-
-### Common Issues
-
-| Issue | Solution |
-|-------|----------|
-| "Cannot connect to Docker" | Start Docker daemon |
-| "Secret not found" | Create `.secrets` file with required secrets |
-| "Image pull failed" | Check internet connection or use `-P` flag |
-| "Permission denied" | Run with `sudo` or add user to docker group |
-| Job takes too long | Use smaller runner image (`micro`) |
-
-### Example Test Session
-
-```bash
-# 1. Navigate to project
-cd ShshShh
-
-# 2. Create secrets file
-cat > .secrets << EOF
-ENCRYPTION_KEY=MyTestKey12345678
-GITHUB_TOKEN=ghp_xxxxxxxxxxxx
-EOF
-
-# 3. Run build job
-act -j build --secret-file .secrets -v
-
-# 4. Check if blobs were created
-ls -la blobs/
 ```
 
 ---
