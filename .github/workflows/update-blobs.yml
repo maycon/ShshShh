@@ -1,0 +1,211 @@
+name: Update Blobs
+
+on:
+  push:
+    branches: ['main']
+
+  schedule:
+    - cron: '0 0 1/16 * *'
+
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y \
+            libzip-dev  \
+            libusb-1.0-0-dev \
+            libcurl4-openssl-dev \
+            build-essential \
+            pkg-config \
+            checkinstall \
+            autoconf \
+            automake \
+            libtool-bin \
+            libreadline-dev \
+            libssl-dev \
+            libcurl4-openssl-dev \
+            jq
+
+      - name: Build libplist
+        run: |
+          git clone --depth 1 https://github.com/libimobiledevice/libplist && cd libplist
+          ./autogen.sh --without-cython --prefix=/usr/ && make -j$(nproc) && sudo make install
+
+      - name: Build libimobiledevice-glue
+        run: |
+          git clone --depth 1 https://github.com/libimobiledevice/libimobiledevice-glue && cd libimobiledevice-glue
+          ./autogen.sh --prefix=/usr/ && make -j$(nproc) && sudo make install
+
+      - name: Build libirecovery
+        run: |
+          git clone --depth 1 https://github.com/libimobiledevice/libirecovery && cd libirecovery
+          ./autogen.sh --prefix=/usr/ && make -j$(nproc) && sudo make install
+
+      - name: Build libgeneral
+        run: |
+          git clone --depth 1 https://github.com/tihmstar/libgeneral && cd libgeneral
+          ./autogen.sh --prefix=/usr/ && make -j$(nproc) && sudo make install
+
+      - name: Build libfragmentzip
+        run: |
+          git clone --depth 1 https://github.com/tihmstar/libfragmentzip && cd libfragmentzip
+          sed -i 's/@VERSION_COMMIT_COUNT@/48/' libfragmentzip.pc.in
+          sed -i \
+            -e'/libgeneral/d' \
+            -e '/VERSION_COMMIT_COUNT/d' \
+            -e '/VERSION_COMMIT_SHA/d' \
+            -e 's/, m4_esyscmd.*,/, 48,/' \
+            configure.ac
+          ./autogen.sh --prefix=/usr/ && make && sudo make install
+
+      - name: Build tsschecker
+        run: |
+          git clone --depth 1 --recurse-submodules https://github.com/airsquared/tsschecker && cd tsschecker
+          ./autogen.sh && make -j$(nproc) && sudo make install
+
+      # ============================================================
+      # SECURITY: Decrypt sensitive data
+      # ============================================================
+      - name: Decrypt devices file
+        env:
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+        run: |
+          openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 \
+            -in devices.json.enc \
+            -out devices.json \
+            -pass env:ENCRYPTION_KEY
+
+      - name: Download blobs
+        env:
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+        run: |
+          # Disable verbose logging to prevent data leaks
+          set +x
+          
+          # Read devices from JSON using jq
+          DEVICE_COUNT=$(jq '.devices | length' devices.json)
+          
+          for i in $(seq 0 $((DEVICE_COUNT - 1))); do
+            # Extract device info from JSON
+            NAME=$(jq -r ".devices[$i].name" devices.json)
+            PRODUCT_TYPE=$(jq -r ".devices[$i].productType" devices.json)
+            BOARD_CONFIG=$(jq -r ".devices[$i].boardConfig" devices.json)
+            ECID_HEX=$(jq -r ".devices[$i].ecid" devices.json)
+            GENERATOR=$(jq -r ".devices[$i].generator // \"0x1111111111111111\"" devices.json)
+            
+            # Safe logging - mask actual ECID
+            ECID_LEN=${#ECID_HEX}
+            if [ $ECID_LEN -gt 8 ]; then
+              MASKED_ECID="${ECID_HEX:0:4}****${ECID_HEX: -4}"
+            else
+              MASKED_ECID="****"
+            fi
+            
+            # Capture only the version line, discard everything else
+            latest_version=$(tsschecker --device "$PRODUCT_TYPE" --boardconfig "$BOARD_CONFIG" --latest 2>&1 | grep -E '^Firmware version' | cut -d' ' -f3 || true)
+
+            echo "::group::Device: $NAME ($MASKED_ECID)"
+            echo "Product Type: $PRODUCT_TYPE"
+            echo "Board Config: $BOARD_CONFIG"
+            echo "Latest Version: $latest_version"
+
+            if [[ "$latest_version" == "" ]]; then
+              echo "::warning::Could not determine latest version for $NAME"
+              echo "::endgroup::"
+              continue
+            fi
+
+            save_path="blobs/$latest_version/"
+            mkdir -p "$save_path"
+
+            # Redirect ALL output to prevent sensitive data leaks
+            # Only show success/failure status
+            if tsschecker --ecid "0x$ECID_HEX"           \
+                          --device "$PRODUCT_TYPE"        \
+                          --boardconfig "$BOARD_CONFIG"   \
+                          --save-path "$save_path"       \
+                          --generator "$GENERATOR"        \
+                          --save --latest > /dev/null 2>&1
+            then
+              echo "✅ Blob saved successfully"
+            else
+              echo "::warning::Failed to save blob for $NAME"
+            fi
+            
+            echo "::endgroup::"
+          done
+          
+          # Remove decrypted file
+          rm -f devices.json
+
+      # ============================================================
+      # SECURITY: Encrypt blobs before publishing
+      # ============================================================
+      - name: Encrypt blobs
+        env:
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+        run: |
+          cd blobs/
+          for version in */; do
+            for shsh in "$version"*.shsh2 2>/dev/null; do
+              if [[ -f "$shsh" ]]; then
+                openssl enc -aes-256-cbc -pbkdf2 -iter 100000 \
+                  -in "$shsh" \
+                  -out "${shsh}.enc" \
+                  -pass env:ENCRYPTION_KEY
+                
+                rm -f "$shsh"
+              fi
+            done
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: blobs-encrypted
+          path: blobs
+
+  release:
+    runs-on: ubuntu-22.04
+    needs: [build]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: blobs-encrypted
+          path: blobs
+
+      - name: Create release versions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd blobs/
+          for version in */; do
+            version="${version%/}"
+            
+            if ! gh release list | grep -q "^$version\b"; then
+              gh release create "$version" --title "iOS $version (Encrypted)" \
+                --notes "⚠️ Blobs are encrypted. Use decrypt.sh script to decrypt."
+            fi
+
+            for shsh_enc in "$version"/*.shsh2.enc 2>/dev/null; do
+              if [[ -f "$shsh_enc" ]]; then
+                filename=$(basename "$shsh_enc")
+                asset=$(echo -n "$filename" | sed 's/_[^_]*_[^_]*_/./g')
+                mv "$shsh_enc" "$version/$asset"
+                
+                if ! gh release download "$version" -p "$asset" -D /tmp/ 2>/dev/null; then
+                  gh release upload "$version" "$version/$asset" --clobber
+                fi
+              fi
+            done
+          done

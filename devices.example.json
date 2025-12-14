@@ -1,0 +1,27 @@
+{
+  "version": "1.0",
+  "devices": [
+    {
+      "name": "iPhone 7",
+      "color": "Black",
+      "productType": "iPhone9,3",
+      "boardConfig": "D101AP",
+      "ecid": "19108208098326",
+      "serialNumber": "DV6VJ2LNHG7F",
+      "udid": "2f8bbd9262fd04d6c1a56fe29b63b64153ba2fd0",
+      "imei": "356559088361626",
+      "generator": "0x1111111111111111"
+    },
+    {
+      "name": "iPhone 13 Pro Max",
+      "color": "Black",
+      "productType": "iPhone14,3",
+      "boardConfig": "D64AP",
+      "ecid": "160191a61801e",
+      "serialNumber": "TQQ01QNWPQ",
+      "udid": "00008110-000160191A61801E",
+      "imei": "359481989368088",
+      "generator": "0x1111111111111111"
+    }
+  ]
+}
