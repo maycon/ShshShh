@@ -16,6 +16,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate secrets
+        env:
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+        run: |
+          if [[ -z "$ENCRYPTION_KEY" ]]; then
+            echo "::error::ENCRYPTION_KEY secret is not set. Please configure it in Settings → Secrets → Actions."
+            exit 1
+          fi
+          
+          if [[ ${#ENCRYPTION_KEY} -lt 16 ]]; then
+            echo "::error::ENCRYPTION_KEY must be at least 16 characters long."
+            exit 1
+          fi
+          
+          echo "✅ ENCRYPTION_KEY is configured"
+
+      - name: Validate devices file
+        run: |
+          if [[ ! -f "devices.json.enc" ]]; then
+            echo "::error::devices.json.enc not found. Please encrypt your devices.json file first."
+            echo ""
+            echo "To create it:"
+            echo "  1. Create devices.json with your device info"
+            echo "  2. Run: ./scripts/encrypt.sh devices.json"
+            echo "  3. Commit devices.json.enc"
+            exit 1
+          fi
+          
+          echo "✅ devices.json.enc found"
+
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -146,6 +176,22 @@ jobs:
           # Remove decrypted file
           rm -f devices.json
 
+      - name: Validate blobs were created
+        run: |
+          BLOB_COUNT=$(find blobs -name "*.shsh2" 2>/dev/null | wc -l)
+          
+          if [[ $BLOB_COUNT -eq 0 ]]; then
+            echo "::error::No blobs were saved. Check the logs above for errors."
+            echo ""
+            echo "Possible causes:"
+            echo "  - Invalid device information (productType, boardConfig, ECID)"
+            echo "  - Apple servers not responding"
+            echo "  - iOS version not being signed"
+            exit 1
+          fi
+          
+          echo "✅ $BLOB_COUNT blob(s) saved successfully"
+
       # ============================================================
       # SECURITY: Encrypt blobs before publishing
       # ============================================================
@@ -154,18 +200,29 @@ jobs:
           ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
         run: |
           cd blobs/
-          for version in */; do
-            for shsh in "$version"*.shsh2 2>/dev/null; do
-              if [[ -f "$shsh" ]]; then
-                openssl enc -aes-256-cbc -pbkdf2 -iter 100000 \
-                  -in "$shsh" \
-                  -out "${shsh}.enc" \
-                  -pass env:ENCRYPTION_KEY
-                
-                rm -f "$shsh"
-              fi
-            done
+          find . -name "*.shsh2" | while read shsh; do
+            if [[ -f "$shsh" ]]; then
+              openssl enc -aes-256-cbc -pbkdf2 -iter 100000 \
+                -in "$shsh" \
+                -out "${shsh}.enc" \
+                -pass env:ENCRYPTION_KEY
+              rm -f "$shsh"
+            fi
           done
+
+      - name: Validate encrypted blobs
+        run: |
+          ENC_COUNT=$(find blobs -name "*.shsh2.enc" 2>/dev/null | wc -l)
+          
+          if [[ $ENC_COUNT -eq 0 ]]; then
+            echo "::error::No encrypted blobs found. Encryption may have failed."
+            exit 1
+          fi
+          
+          echo "✅ $ENC_COUNT blob(s) encrypted successfully"
+          echo ""
+          echo "📦 Encrypted files:"
+          find blobs -name "*.shsh2.enc" -exec ls -lh {} \;
 
       - uses: actions/upload-artifact@v4
         with:
@@ -175,6 +232,7 @@ jobs:
   release:
     runs-on: ubuntu-22.04
     needs: [build]
+    if: ${{ !env.ACT }}
 
     steps:
       - uses: actions/checkout@v4
