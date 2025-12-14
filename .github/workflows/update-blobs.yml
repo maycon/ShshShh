@@ -245,7 +245,7 @@ jobs:
     needs: [build]
     permissions:
       contents: write
-      
+
     steps:
       - uses: actions/checkout@v4
 
@@ -258,22 +258,35 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "📁 Contents of blobs directory:"
+          find blobs -type f -name "*.enc" || echo "No .enc files found"
+          
           cd blobs/
+          
           for version in */; do
             version="${version%/}"
+            echo ""
+            echo "🏷️  Processing version: $version"
             
-            if ! gh release list | grep -q "^$version\b"; then
-              gh release create "$version" --title "iOS $version (Encrypted)" \
+            # Create release if it doesn't exist
+            if ! gh release view "$version" &>/dev/null; then
+              echo "Creating release $version..."
+              gh release create "$version" \
+                --title "iOS $version (Encrypted)" \
                 --notes "⚠️ Blobs are encrypted. Use decrypt.sh script to decrypt."
+            else
+              echo "Release $version already exists"
             fi
 
-            find "$version" -name "*.shsh2.enc" | while read shsh; do
+            # Upload each blob
+            for shsh_enc in "$version"/*.shsh2.enc; do
               if [[ -f "$shsh_enc" ]]; then
                 filename=$(basename "$shsh_enc")
-                
-                if ! gh release download "$version" -p "$filename" -D /tmp/ 2>/dev/null; then
-                  gh release upload "$version" "$shsh_enc" --clobber
-                fi
+                echo "📤 Uploading: $filename"
+                gh release upload "$version" "$shsh_enc" --clobber || echo "⚠️ Failed to upload $filename"
               fi
             done
           done
+          
+          echo ""
+          echo "✅ Release process completed"
