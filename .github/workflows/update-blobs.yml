@@ -165,7 +165,18 @@ jobs:
                           --generator "$GENERATOR"        \
                           --save --latest > /dev/null 2>&1
             then
-              echo "✅ Blob saved successfully"
+              # Rename blob to safe filename (remove ECID from name)
+              # Original: {ECID}_{ProductType}_{BoardConfig}_{Version}-{Build}_*.shsh2
+              # Safe: {Name}_{ProductType}_{Version}.shsh2
+              for blob in "$save_path"*.shsh2; do
+                if [[ -f "$blob" ]]; then
+                  # Sanitize device name (replace spaces with underscores)
+                  SAFE_NAME=$(echo "$NAME" | tr ' ' '_' | tr -cd '[:alnum:]_-')
+                  NEW_NAME="${save_path}${SAFE_NAME}_${PRODUCT_TYPE}_${latest_version}.shsh2"
+                  mv "$blob" "$NEW_NAME"
+                  echo "✅ Blob saved: $(basename "$NEW_NAME")"
+                fi
+              done
             else
               echo "::warning::Failed to save blob for $NAME"
             fi
@@ -254,14 +265,12 @@ jobs:
                 --notes "⚠️ Blobs are encrypted. Use decrypt.sh script to decrypt."
             fi
 
-            for shsh_enc in "$version"/*.shsh2.enc 2>/dev/null; do
+            find "$version" -name "*.shsh2.enc" | while read shsh; do
               if [[ -f "$shsh_enc" ]]; then
                 filename=$(basename "$shsh_enc")
-                asset=$(echo -n "$filename" | sed 's/_[^_]*_[^_]*_/./g')
-                mv "$shsh_enc" "$version/$asset"
                 
-                if ! gh release download "$version" -p "$asset" -D /tmp/ 2>/dev/null; then
-                  gh release upload "$version" "$version/$asset" --clobber
+                if ! gh release download "$version" -p "$filename" -D /tmp/ 2>/dev/null; then
+                  gh release upload "$version" "$shsh_enc" --clobber
                 fi
               fi
             done
